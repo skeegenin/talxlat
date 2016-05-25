@@ -170,9 +170,7 @@ def FirstOrDefault( testFunc, values, defaultValue = None ):
 	
 def GetPreferredDeviceByName( inputDeviceInfos, preferredDeviceName, deviceNameSearchStrings ):
 	if preferredDeviceName is not None:
-		deviceNameSearchStrings = list( deviceNameSearchStrings )
-		deviceNameSearchStrings.insert( 0, preferredDeviceName )
-		return
+		deviceNameSearchStrings = [ preferredDeviceName ]
 
 	for searchString in deviceNameSearchStrings:
 		searchString = searchString.lower()
@@ -404,6 +402,8 @@ try:
 		
 	micDeviceInfo = GetPreferredDeviceByName( inputDeviceInfos, args.prefMicInput, micInputSearchStrings )
 	if micDeviceInfo is None:
+		micDeviceInfo = GetPreferredDeviceByName( inputDeviceInfos, None, micInputSearchStrings )
+	if micDeviceInfo is None:
 		micDeviceInfo = audioInterface.get_default_input_device_info()
 	if micDeviceInfo is None and args.prefMicInput is not None:
 		print( 'Your preferred Mic device ( {0} ) is not available. Please choose another or clear the argument.'.format( args.prefMicInput ) )
@@ -418,6 +418,8 @@ try:
 	if speakerDeviceInfo is not None:
 		print( 'Speaker Output Monitoring Device Chosen: {0}'.format( speakerDeviceInfo[ 'name' ] ) )
 		speakerDeviceIndex = speakerDeviceInfo[ 'index' ]
+	else:
+		print( 'No Speaker Output Monitoring Device Chosen' )
 	
 	micMonitor = AudioMonitor( audioInterface, micDeviceIndex )
 	micMonitor.start()
