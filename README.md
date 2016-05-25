@@ -18,7 +18,11 @@ You probably already have this on Mac OS X.
 This probably came with your Python 3 distribution. `python -m tkinter` should open an ugly window. If not: [Installation Instructions](http://tkinter.unpythonic.net/wiki/How_to_install_Tkinter).
 
 ### pyaudio
+**Windows:**
 `python -m pip install pyaudio`
+
+**Everything else:**
+https://people.csail.mit.edu/hubert/pyaudio/
 
 ### numpy
 `python -m pip install numpy`
