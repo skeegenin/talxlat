@@ -63,6 +63,8 @@ class RollingPowerWindowEvaluator:
 		# To correct those (now that there are enough values), convlove must run on input values starting an additional halfWindowSize earlier ( -(newAmplitudes.size + halfWindowSize + halfWindowSize) ), discarding the front-end boundary errors: output[:halfWindowSize]
 		replacementIndex = -( newAmplitudes.size + self.smoothingWindowHalfSize )
 		outgoingPowers = self.powerWindowBuffer[ replacementIndex: ]
+		# Note that for all of the cumulative values, terrible sins of floatinng point arithmetic are committed resulting in some floating point error accumulation over time.
+		# Since this application isn't remotely #SCIENCE, I'm leaving the Knuthification for future work. For long periods of time, it might be helpful to "reset". (For now that means restarting the script.)
 		self.totalPower -= outgoingPowers.sum()
 		self.totalSquaresOfPower -= numpy.dot( outgoingPowers, outgoingPowers )
 		incomingPowers = numpy.convolve(
@@ -76,13 +78,14 @@ class RollingPowerWindowEvaluator:
 		self.powerStdDevEstimateTimesBufferSize = math.sqrt( max( 0, ( self.powerWindowBuffer.size * self.totalSquaresOfPower ) - ( self.totalPower * self.totalPower ) ) )
 		self.outlyingPowerThreshhold = ( self.totalPower + self.powerStdDevEstimateTimesBufferSize ) / self.powerWindowBuffer.size
 
+		# Need a different way of determining a good threshhold and keeping it steady for this to work, but it showed some promise.
 		self.outlyingPowerBuffer = numpy.roll( self.outlyingPowerBuffer, -newAmplitudes.size )		
 		self.totalOutlyingPower -= self.outlyingPowerBuffer[ replacementIndex: ].sum()
 		self.outlyingPowerBuffer[ replacementIndex: ] = numpy.clip( self.powerWindowBuffer[ replacementIndex: ] - self.outlyingPowerThreshhold, 0, self.typeSettings.maxValue )
 		self.totalOutlyingPower += self.outlyingPowerBuffer[ replacementIndex: ].sum()
 		
-		# unsurprisingly too slow most of the time, calculating power over current overall threshhold for each incremental data instead, which isn't the same thing, but maybe close enough
-		#self.totalOutlyingPower = reduce( lambda sum, value: sum + max( 0, value - self.outlyingPowerThreshhold ), self.powerWindowBuffer )	
+		# Unsurprisingly too slow most of the time, calculating power over current overall threshhold for each incremental data instead, which isn't the same thing, but still useful in its own way.
+		#self.totalOutlyingPower = reduce( lambda sum, value: sum + max( 0, value - self.outlyingPowerThreshhold ), self.powerWindowBuffer )
 	
 	def getTotalPowerPercent( self ):
 		return self.totalPower / ( self.amplitudeBuffer.size * float( self.typeSettings.maxValue ) )
@@ -111,14 +114,16 @@ class AudioMonitor:
 		
 	def initializeStream( self ):
 		deviceInfo = audioInterface.get_device_info_by_index( micDeviceIndex )
+		# HACK: arbitrary, but modern computer input sample rates are much higher than necessary for this application.
 		sampleRate = round( deviceInfo[ 'defaultSampleRate' ] / 2 )
 		audioBufferLength = math.ceil( sampleRate * self.bufferSeconds )
 		
-		# half of 85Hz wave, the low end of human voice, since taking abs value, and then half again b/c left and right neighbors
+		# Half of 85Hz wave, the low end of human voice. Half since taking abs value flips the bottom end of the wave up to another peak.
+		# Then half again because knowing half of the window size is helpful below.
 		smoothingWindowHalfSize = round( sampleRate / ( 85 * 2 * 2 ) )
 
-		# TODO interrogate deviceInfo
 		self.typeSettings = Int16Settings()
+#		if not self.audioInterface.is_format_supported( sampleRate, input_device = self.deviceIndex, input_channels=1, input_format=None, output_device=None, output_channels=None, output_format=None)
 #		self.typeSettings = Float32Settings()
 
 		self.rollingPowerWindowEvaluator = RollingPowerWindowEvaluator( audioBufferLength, smoothingWindowHalfSize, self.typeSettings )
@@ -161,7 +166,7 @@ class AudioMonitor:
 def FirstOrDefault( testFunc, values, defaultValue = None ):
 	return next( iter( filter( testFunc, values ) ), defaultValue )
 	
-def GetPreferredDeviceByName( inputDeviceInfos, preferredDeviceName, deviceNameSearchStrings, fallBackToDefaultDevice = False ):
+def GetPreferredDeviceByName( inputDeviceInfos, preferredDeviceName, deviceNameSearchStrings ):
 	if preferredDeviceName is not None:
 		deviceNameSearchStrings = list( deviceNameSearchStrings )
 		deviceNameSearchStrings.insert( 0, preferredDeviceName )
@@ -171,9 +176,6 @@ def GetPreferredDeviceByName( inputDeviceInfos, preferredDeviceName, deviceNameS
 		preferredMicDeviceInfo = FirstOrDefault( lambda i: searchString in i[ 'name' ].lower(), inputDeviceInfos )
 		if preferredMicDeviceInfo is not None:
 			return preferredMicDeviceInfo
-
-	if fallBackToDefaultDevice:
-		return inputDeviceInfos[ 0 ]
 
 	return None
 	
@@ -197,6 +199,7 @@ class TalxlatCanvas(Tk.Canvas):
 		self.muteShapes = None
 
 		self.bind( '<Configure>', self.onResize )
+		self.bind( '<Button-1>', self.onLeftClick )
 
 		self.createShapes()
 
@@ -298,6 +301,9 @@ class TalxlatCanvas(Tk.Canvas):
 	def onResize( self, event ):
 		self.clearShapes()
 		self.createShapes()
+		
+	def onLeftClick( self, event ):
+		print( self.master.winfo_geometry() )
 
 	def updateCanvas( self, event = None ):
 		micTalkLevel = self.micMonitor.rollingPowerWindowEvaluator.getTalkLevelEstimate()
@@ -348,7 +354,7 @@ argParser.add_argument('-l', dest='listDevicesAndExit', action='store_true', def
 argParser.add_argument('-m', dest='prefMicInput', help='name of preferred input device for Microphone (partial name works)' )
 argParser.add_argument('-s', dest='prefSpeakerMonitorInput', help='name of preferred input device for monitoring Speaker Output  (partial name works)' )
 argParser.add_argument('-normalWindow', dest='normalWindow', action='store_true', default=False, help='In MS Windows, open as a normal window instead of Tool on top of everything')
-argParser.add_argument('-g', dest='windowGeometry', default='400x800+1510+0', help='Window geometry in format "[width]x[height]+[x]+[y]", default: 400x800+1510+0')
+argParser.add_argument('-g', dest='windowGeometry', default='400x800-0+0', help='Window geometry in format "[width]x[height]+[x]+[y]", default: 400x800-0+0 which starts the window in the upper right corner of the main display')
 argParser.add_argument('-bgColor', dest='bgColor', default='#111144', help='Background color of window while someone is talking (most usual web colors work including #rgb and #rrggbb)' )
 argParser.add_argument('-fgColor', dest='fgColor', default='#ffff33', help='Foreground color of window while someone is talking (most usual web colors work including #rgb and #rrggbb)' )
 argParser.add_argument('-mbgColor', dest='muteBgColor', default='#11ff11', help='Background color of window while nobody is talking (most usual web colors work including #rgb and #rrggbb)' )
@@ -393,7 +399,9 @@ try:
 	print( 'Default guesses will be made unless you specified inputs on the command line' )
 	print( '' )
 		
-	micDeviceInfo = GetPreferredDeviceByName( inputDeviceInfos, args.prefMicInput, micInputSearchStrings, True )
+	micDeviceInfo = GetPreferredDeviceByName( inputDeviceInfos, args.prefMicInput, micInputSearchStrings )
+	if micDeviceInfo is None:
+		micDeviceInfo = audioInterface.get_default_input_device_info()
 	if args.prefMicInput is not None and not args.prefMicInput.lower() in micDeviceInfo[ 'name' ].lower():
 		print( 'Your preferred Mic device ( {0} ) is not available'.format( args.prefMicInput ) )
 	print( 'Mic Device Chosen: {0}'.format( micDeviceInfo[ 'name' ] ) )
