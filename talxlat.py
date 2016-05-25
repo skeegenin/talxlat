@@ -123,9 +123,11 @@ class AudioMonitor:
 		smoothingWindowHalfSize = round( sampleRate / ( 85 * 2 * 2 ) )
 
 		self.typeSettings = Int16Settings()
-#		if not self.audioInterface.is_format_supported( sampleRate, input_device = self.deviceIndex, input_channels=1, input_format=None, output_device=None, output_channels=None, output_format=None)
-#		self.typeSettings = Float32Settings()
-
+		if not self.audioInterface.is_format_supported( sampleRate, input_device = self.deviceIndex, input_channels=1, input_format=self.typeSettings.paFormat, output_device=None, output_channels=None, output_format=None ):
+			self.typeSettings = Float32Settings()
+		if not self.audioInterface.is_format_supported( sampleRate, input_device = self.deviceIndex, input_channels=1, input_format=self.typeSettings.paFormat, output_device=None, output_channels=None, output_format=None ):
+			raise Exception( 'Could not find a compatible device format for {0}'.format( self.audioInterface.get_device_info_by_index( self.deviceIndex )[ 'name' ] ) )
+			
 		self.rollingPowerWindowEvaluator = RollingPowerWindowEvaluator( audioBufferLength, smoothingWindowHalfSize, self.typeSettings )
 		
 		self.audioInputStream = audioInterface.open( 
