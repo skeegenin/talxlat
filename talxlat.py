@@ -172,6 +172,7 @@ def GetPreferredDeviceByName( inputDeviceInfos, preferredDeviceName, deviceNameS
 	if preferredDeviceName is not None:
 		deviceNameSearchStrings = list( deviceNameSearchStrings )
 		deviceNameSearchStrings.insert( 0, preferredDeviceName )
+		return
 
 	for searchString in deviceNameSearchStrings:
 		searchString = searchString.lower()
@@ -404,22 +405,30 @@ try:
 	micDeviceInfo = GetPreferredDeviceByName( inputDeviceInfos, args.prefMicInput, micInputSearchStrings )
 	if micDeviceInfo is None:
 		micDeviceInfo = audioInterface.get_default_input_device_info()
-	if args.prefMicInput is not None and not args.prefMicInput.lower() in micDeviceInfo[ 'name' ].lower():
-		print( 'Your preferred Mic device ( {0} ) is not available'.format( args.prefMicInput ) )
+	if micDeviceInfo is None and args.prefMicInput is not None:
+		print( 'Your preferred Mic device ( {0} ) is not available. Please choose another or clear the argument.'.format( args.prefMicInput ) )
+		raise SystemError()
 	print( 'Mic Device Chosen: {0}'.format( micDeviceInfo[ 'name' ] ) )
 	micDeviceIndex = micDeviceInfo[ 'index' ]
 	
+	speakerDeviceIndex = None
 	speakerDeviceInfo = GetPreferredDeviceByName( inputDeviceInfos, args.prefSpeakerMonitorInput, speakerMonitorInputSearchStrings )
-	if args.prefSpeakerMonitorInput is not None and not args.prefSpeakerMonitorInput.lower() in speakerDeviceInfo[ 'name' ].lower():
+	if speakerDeviceInfo is None and args.prefSpeakerMonitorInput is not None:
 		print( 'Your preferred Speaker Output monitoring device ( {0} ) is not available'.format( args.prefSpeakerMonitorInput ) )
-	print( 'Speaker Output Monitoring Device Chosen: {0}'.format( speakerDeviceInfo[ 'name' ] ) )
-	speakerDeviceIndex = speakerDeviceInfo[ 'index' ]
+	if speakerDeviceInfo is not None:
+		print( 'Speaker Output Monitoring Device Chosen: {0}'.format( speakerDeviceInfo[ 'name' ] ) )
+		speakerDeviceIndex = speakerDeviceInfo[ 'index' ]
 	
 	micMonitor = AudioMonitor( audioInterface, micDeviceIndex )
 	micMonitor.start()
 
-	speakerMonitor = AudioMonitor( audioInterface, speakerDeviceIndex )
-	speakerMonitor.start()
+	if speakerDeviceIndex is not None:
+		try:
+			speakerMonitor = AudioMonitor( audioInterface, speakerDeviceIndex )
+			speakerMonitor.start()
+		except OSError as e:
+			print( 'Audio Monitor Device error' )
+			print( e )
 
 	root = Tk.Tk()
 	root.geometry(args.windowGeometry)
