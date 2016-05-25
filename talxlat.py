@@ -123,11 +123,20 @@ class AudioMonitor:
 		smoothingWindowHalfSize = round( sampleRate / ( 85 * 2 * 2 ) )
 
 		self.typeSettings = Int16Settings()
-		if not self.audioInterface.is_format_supported( sampleRate, input_device = self.deviceIndex, input_channels=1, input_format=self.typeSettings.paFormat, output_device=None, output_channels=None, output_format=None ):
+		try:
+			# Documentation not clear on if this returns false or throws when a bad format is supplied
+			if not self.audioInterface.is_format_supported( sampleRate, input_device = self.deviceIndex, input_channels=1, input_format=self.typeSettings.paFormat, output_device=None, output_channels=None, output_format=None ):
+				self.typeSettings = Float32Settings()
+		except:
 			self.typeSettings = Float32Settings()
-		if not self.audioInterface.is_format_supported( sampleRate, input_device = self.deviceIndex, input_channels=1, input_format=self.typeSettings.paFormat, output_device=None, output_channels=None, output_format=None ):
-			raise Exception( 'Could not find a compatible device format for {0}'.format( self.audioInterface.get_device_info_by_index( self.deviceIndex )[ 'name' ] ) )
-			
+
+		try:
+			# Documentation not clear on if this returns false or throws when a bad format is supplied
+			if not self.audioInterface.is_format_supported( sampleRate, input_device = self.deviceIndex, input_channels=1, input_format=self.typeSettings.paFormat, output_device=None, output_channels=None, output_format=None ):
+				raise Exception( 'Could not find a compatible device format for {0}'.format( self.audioInterface.get_device_info_by_index( self.deviceIndex )[ 'name' ] ) )
+		except:
+				raise Exception( 'Could not find a compatible device format for {0}'.format( self.audioInterface.get_device_info_by_index( self.deviceIndex )[ 'name' ] ) )
+		
 		self.rollingPowerWindowEvaluator = RollingPowerWindowEvaluator( audioBufferLength, smoothingWindowHalfSize, self.typeSettings )
 		
 		self.audioInputStream = audioInterface.open( 
@@ -202,97 +211,120 @@ class TalxlatCanvas(Tk.Canvas):
 		self.bind( '<Configure>', self.onResize )
 		self.bind( '<Button-1>', self.onLeftClick )
 
-		self.createShapes()
+		self.updateCanvas()
 
-	def createShapes( self ):
+	def createArrowPoints( self, scale, down = False ):
+		width = self.winfo_width()
+		height = self.winfo_height()
+		arrowWidth = ( width - self.shapeMargin ) * scale
+		arrowHeight = ( ( height * 0.5 ) - self.shapeMargin ) * scale
+		
+		baseY = height - self.shapeMargin
+		upDownYScale = 1.0
+		if down:
+			baseY = self.shapeMargin
+			upDownYScale = -1.0
+		
+		tipY = baseY - ( upDownYScale * arrowHeight )
+		
+		centerX = width * 0.5
+		leftX = centerX - ( arrowWidth * 0.5 )
+		rightX = centerX + ( arrowWidth * 0.5 )
+		
+		return [
+			leftX, baseY,
+			centerX, tipY,
+			rightX, baseY,
+			max( centerX, rightX - self.shapeThickness ), baseY,
+			centerX, min( height - self.shapeMargin, max( self.shapeMargin, tipY + ( upDownYScale * 4 * self.shapeThickness ) ) ),
+			min( centerX, leftX + self.shapeThickness ), baseY
+		]
+		
+	def createMicShape( self, scale ):
+		if self.micShape is not None:
+			return
+		
+		micPoints = self.createArrowPoints( scale )
+		self.micShape = self.create_polygon( micPoints, fill = self.fgColor )
+	
+	def createSpeakerShape( self, scale ):
+		if self.speakerShape is not None:
+			return
+			
+		width = self.winfo_width() * scale
+		height = self.winfo_height() * scale
+		
+		speakerPoints = self.createArrowPoints( scale, True )
+		self.speakerShape = self.create_polygon( speakerPoints, fill = self.fgColor )
+	
+	def createMuteShapes( self ):
+		if self.muteShapes is not None:
+			return
+
 		width = self.winfo_width()
 		height = self.winfo_height()
 		
-		if self.micShape is None:
-			micPoints = [
-				self.shapeMargin, height - self.shapeMargin,
-				( width / 2 ), ( height / 2 ) + self.shapeMargin,
-				width - self.shapeMargin, height - self.shapeMargin,
-				width - self.shapeMargin - self.shapeThickness, height - self.shapeMargin,
-				width / 2, ( height / 2 ) + self.shapeMargin + ( 4 * self.shapeThickness ),
-				self.shapeMargin + self.shapeThickness, height - self.shapeMargin ]
-			self.micShape = self.create_polygon( micPoints, fill = '' )
+		self.muteShapes = []
+		eyeOffset = 0.33
+		eyeHeight = int( height * 0.4 )
+		eyeThickness = int( self.shapeThickness * 1.5 )
+		self.muteShapes.append( self.create_oval(
+			( width * ( 0.5 - eyeOffset ) ) - eyeThickness, eyeHeight - ( 2 * eyeThickness ),
+			( width * ( 0.5 - eyeOffset ) ) + eyeThickness, eyeHeight + ( 2 * eyeThickness ),
+			fill = self.muteFgColor, outline = '' ) )
 			
-		if self.speakerShape is None:
-			speakerPoints = [
-				self.shapeMargin, self.shapeMargin,
-				( width / 2 ), ( height / 2 ) - self.shapeMargin,
-				width - self.shapeMargin, self.shapeMargin,
-				width - self.shapeMargin - self.shapeThickness, self.shapeMargin,
-				width / 2, ( height / 2 ) - self.shapeMargin - ( 4 * self.shapeThickness ),
-				self.shapeMargin + self.shapeThickness, self.shapeMargin ]
-			self.speakerShape = self.create_polygon( speakerPoints, fill = '' )
-		
+		self.muteShapes.append( self.create_oval(
+			( width * ( 0.5 + eyeOffset ) ) - eyeThickness, eyeHeight - ( 2 * eyeThickness ),
+			( width * ( 0.5 + eyeOffset ) ) + eyeThickness, eyeHeight + ( 2 * eyeThickness ),
+			fill = self.muteFgColor, outline = '' ) )
+			
+		noseY = 0.61
+		self.muteShapes.append( self.create_oval(
+			( width - self.shapeThickness ) * 0.5, ( height - self.shapeThickness ) * noseY,
+			( width + self.shapeThickness ) * 0.5, ( height + self.shapeThickness ) * noseY,
+			fill = self.muteFgColor, outline = '' ) )
+			
+		mouthCenterX = int( width / 2 )
+		mouthCenterY = height * 0.7
+		mouthHalfWidth = int( width * 0.125 )
+		mouthHalfHeight = int( height * 0.02 )
+		mouthThickness = self.shapeThickness / 2
+		mouthPoints = [
+			mouthCenterX, mouthCenterY - mouthThickness,
+			mouthCenterX + mouthHalfWidth, mouthCenterY - mouthHalfHeight - mouthThickness,
+			mouthCenterX + mouthHalfWidth + mouthThickness, mouthCenterY - mouthHalfHeight,
 
-		if self.muteShapes is None:
-			self.muteShapes = []
-			eyeOffset = 0.33
-			eyeHeight = int( height * 0.4 )
-			eyeThickness = int( self.shapeThickness * 1.5 )
-			self.muteShapes.append( self.create_oval(
-				( width * ( 0.5 - eyeOffset ) ) - eyeThickness, eyeHeight - ( 2 * eyeThickness ),
-				( width * ( 0.5 - eyeOffset ) ) + eyeThickness, eyeHeight + ( 2 * eyeThickness ),
-				fill = '', outline = '' ) )
-				
-			self.muteShapes.append( self.create_oval(
-				( width * ( 0.5 + eyeOffset ) ) - eyeThickness, eyeHeight - ( 2 * eyeThickness ),
-				( width * ( 0.5 + eyeOffset ) ) + eyeThickness, eyeHeight + ( 2 * eyeThickness ),
-				fill = '', outline = '' ) )
-				
-			noseY = 0.61
-			self.muteShapes.append( self.create_oval(
-				( width - self.shapeThickness ) * 0.5, ( height - self.shapeThickness ) * noseY,
-				( width + self.shapeThickness ) * 0.5, ( height + self.shapeThickness ) * noseY,
-				fill = '', outline = '' ) )
-				
-			mouthCenterX = int( width / 2 )
-			mouthCenterY = height * 0.7
-			mouthHalfWidth = int( width * 0.125 )
-			mouthHalfHeight = int( height * 0.02 )
-			mouthThickness = self.shapeThickness / 2
-			mouthPoints = [
-				mouthCenterX, mouthCenterY - mouthThickness,
-				mouthCenterX + mouthHalfWidth, mouthCenterY - mouthHalfHeight - mouthThickness,
-				mouthCenterX + mouthHalfWidth + mouthThickness, mouthCenterY - mouthHalfHeight,
+			mouthCenterX + mouthThickness, mouthCenterY,
+			mouthCenterX + mouthHalfWidth + mouthThickness, mouthCenterY + mouthHalfHeight,
+			mouthCenterX + mouthHalfWidth, mouthCenterY + mouthHalfHeight + mouthThickness,
 
-				mouthCenterX + mouthThickness, mouthCenterY,
-				mouthCenterX + mouthHalfWidth + mouthThickness, mouthCenterY + mouthHalfHeight,
-				mouthCenterX + mouthHalfWidth, mouthCenterY + mouthHalfHeight + mouthThickness,
+			mouthCenterX, mouthCenterY + mouthThickness,
+			mouthCenterX - mouthHalfWidth, mouthCenterY + mouthHalfHeight + mouthThickness,
+			mouthCenterX - mouthHalfWidth - mouthThickness, mouthCenterY + mouthHalfHeight,
 
-				mouthCenterX, mouthCenterY + mouthThickness,
-				mouthCenterX - mouthHalfWidth, mouthCenterY + mouthHalfHeight + mouthThickness,
-				mouthCenterX - mouthHalfWidth - mouthThickness, mouthCenterY + mouthHalfHeight,
+			mouthCenterX - mouthThickness, mouthCenterY,
+			mouthCenterX - mouthHalfWidth - mouthThickness, mouthCenterY - mouthHalfHeight,
+			mouthCenterX - mouthHalfWidth, mouthCenterY - mouthHalfHeight - mouthThickness,
+		]
+		# mouthPoints = [
+			# mouthCenterX, mouthCenterY,
+			# mouthCenterX + mouthHalfWidth, mouthCenterY - mouthHalfHeight - mouthThickness,
+			# mouthCenterX + mouthHalfWidth + mouthThickness, mouthCenterY - mouthHalfHeight,
 
-				mouthCenterX - mouthThickness, mouthCenterY,
-				mouthCenterX - mouthHalfWidth - mouthThickness, mouthCenterY - mouthHalfHeight,
-				mouthCenterX - mouthHalfWidth, mouthCenterY - mouthHalfHeight - mouthThickness,
-			]
-			# mouthPoints = [
-				# mouthCenterX, mouthCenterY,
-				# mouthCenterX + mouthHalfWidth, mouthCenterY - mouthHalfHeight - mouthThickness,
-				# mouthCenterX + mouthHalfWidth + mouthThickness, mouthCenterY - mouthHalfHeight,
+			# mouthCenterX, mouthCenterY,
+			# mouthCenterX + mouthHalfWidth, mouthCenterY + mouthHalfHeight + mouthThickness,
+			# mouthCenterX + mouthHalfWidth + mouthThickness, mouthCenterY + mouthHalfHeight,
 
-				# mouthCenterX, mouthCenterY,
-				# mouthCenterX + mouthHalfWidth, mouthCenterY + mouthHalfHeight + mouthThickness,
-				# mouthCenterX + mouthHalfWidth + mouthThickness, mouthCenterY + mouthHalfHeight,
+			# mouthCenterX, mouthCenterY,
+			# mouthCenterX - mouthHalfWidth, mouthCenterY + mouthHalfHeight + mouthThickness,
+			# mouthCenterX - mouthHalfWidth - mouthThickness, mouthCenterY + mouthHalfHeight,
 
-				# mouthCenterX, mouthCenterY,
-				# mouthCenterX - mouthHalfWidth, mouthCenterY + mouthHalfHeight + mouthThickness,
-				# mouthCenterX - mouthHalfWidth - mouthThickness, mouthCenterY + mouthHalfHeight,
+			# mouthCenterX, mouthCenterY,
+			# mouthCenterX - mouthHalfWidth, mouthCenterY - mouthHalfHeight - mouthThickness,
+			# mouthCenterX - mouthHalfWidth - mouthThickness, mouthCenterY - mouthHalfHeight,
+		# ]
+		self.muteShapes.append( self.create_polygon( mouthPoints, fill = self.muteFgColor ) )
 
-				# mouthCenterX, mouthCenterY,
-				# mouthCenterX - mouthHalfWidth, mouthCenterY - mouthHalfHeight - mouthThickness,
-				# mouthCenterX - mouthHalfWidth - mouthThickness, mouthCenterY - mouthHalfHeight,
-			# ]
-			self.muteShapes.append( self.create_polygon( mouthPoints, fill = '' ) )
-				
-		self.updateCanvas()
-	
 	def clearShapes( self ):
 		self.delete( 'all' )
 		self.micShape = None
@@ -300,8 +332,7 @@ class TalxlatCanvas(Tk.Canvas):
 		self.muteShapes = None
 		
 	def onResize( self, event ):
-		self.clearShapes()
-		self.createShapes()
+		self.updateCanvas()
 		
 	def onLeftClick( self, event ):
 		print( self.master.winfo_geometry() )
@@ -313,36 +344,17 @@ class TalxlatCanvas(Tk.Canvas):
 			speakerTalkLevel = self.speakerMonitor.rollingPowerWindowEvaluator.getTalkLevelEstimate()
 		
 		muted = micTalkLevel < 0.1 and speakerTalkLevel < 0.1
-		speakerColor = ''
+		self.clearShapes()
+		
 		if muted:
 			self.configure( bg = self.muteBgColor )
-			micColor = ''
-			muteFgColor = self.muteFgColor
+			self.createMuteShapes()
 		else:
 			self.configure( bg = self.bgColor )
-			muteFgColor = ''
-			micAlpha = self.micMonitor.rollingPowerWindowEvaluator.getTalkLevelEstimate()
-			micColor = self.getAudioColor( micAlpha )
-			if self.speakerMonitor is not None:
-				speakerAlpha = self.speakerMonitor.rollingPowerWindowEvaluator.getTalkLevelEstimate()
-				speakerColor = self.getAudioColor( speakerAlpha )
-				
-		self.itemconfig( self.micShape, fill = micColor )
-		self.itemconfig( self.speakerShape, fill = speakerColor )
-
-		for s in self.muteShapes:
-			self.itemconfig( s, fill = muteFgColor )
+			self.createMicShape( micTalkLevel )
+			self.createSpeakerShape( speakerTalkLevel )
 			
 		self.after( 300, self.updateCanvas )
-
-	def getAudioColor( self, audioAlpha ):
-		return '#{0:02x}{1:02x}{2:02x}'.format(
-			self.alpha( int( self.bgColor[1:3], 16 ), int( self.fgColor[1:3], 16 ), audioAlpha ),
-			self.alpha( int( self.bgColor[3:5], 16 ), int( self.fgColor[3:5], 16 ), audioAlpha ),
-			self.alpha( int( self.bgColor[5:7], 16 ), int( self.fgColor[5:6], 16 ), audioAlpha ) )
-	
-	def alpha( self, current, overlay, alpha ):
-		return min( 255, max( 0, int( alpha * overlay + ( 1 - alpha ) * current ) ) )
 		
 shapeMargin = 10
 
@@ -355,7 +367,7 @@ argParser.add_argument('-l', dest='listDevicesAndExit', action='store_true', def
 argParser.add_argument('-m', dest='prefMicInput', help='name of preferred input device for Microphone (partial name works)' )
 argParser.add_argument('-s', dest='prefSpeakerMonitorInput', help='name of preferred input device for monitoring Speaker Output  (partial name works)' )
 argParser.add_argument('-normalWindow', dest='normalWindow', action='store_true', default=False, help='In MS Windows, open as a normal window instead of Tool on top of everything')
-argParser.add_argument('-g', dest='windowGeometry', default='400x800-0+0', help='Window geometry in format "[width]x[height]+[x]+[y]", default: 400x800-0+0 which starts the window in the upper right corner of the main display')
+argParser.add_argument('-g', dest='windowGeometry', default='400x800-0+0', help='Window geometry in format "[width]x[height]+[x]+[y]", default: 400x800-0+0 which starts the window in the upper right corner of the main display. Pro Tip: click the window to print the current geometry!')
 argParser.add_argument('-bgColor', dest='bgColor', default='#111144', help='Background color of window while someone is talking (most usual web colors work including #rgb and #rrggbb)' )
 argParser.add_argument('-fgColor', dest='fgColor', default='#ffff33', help='Foreground color of window while someone is talking (most usual web colors work including #rgb and #rrggbb)' )
 argParser.add_argument('-mbgColor', dest='muteBgColor', default='#11ff11', help='Background color of window while nobody is talking (most usual web colors work including #rgb and #rrggbb)' )
@@ -420,10 +432,15 @@ try:
 		speakerDeviceIndex = speakerDeviceInfo[ 'index' ]
 	else:
 		print( 'No Speaker Output Monitoring Device Chosen' )
-	
-	micMonitor = AudioMonitor( audioInterface, micDeviceIndex )
-	micMonitor.start()
 
+	try:
+		micMonitor = AudioMonitor( audioInterface, micDeviceIndex )
+		micMonitor.start()
+	except OSError as e:
+		print( 'Mic Device error. Giving up!' )
+		print( e )
+		raise SystemError()
+		
 	if speakerDeviceIndex is not None:
 		try:
 			speakerMonitor = AudioMonitor( audioInterface, speakerDeviceIndex )
