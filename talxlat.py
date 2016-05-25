@@ -349,7 +349,7 @@ argParser.add_argument('-m', dest='prefMicInput', help='name of preferred input 
 argParser.add_argument('-s', dest='prefSpeakerMonitorInput', help='name of preferred input device for monitoring Speaker Output  (partial name works)' )
 argParser.add_argument('-normalWindow', dest='normalWindow', action='store_true', default=False, help='In MS Windows, open as a normal window instead of Tool on top of everything')
 argParser.add_argument('-g', dest='windowGeometry', default='400x800+1510+0', help='Window geometry in format "[width]x[height]+[x]+[y]", default: 400x800+1510+0')
-argParser.add_argument('-bgColor', dest='bgColor', default='#111166', help='Background color of window while someone is talking (most usual web colors work including #rgb and #rrggbb)' )
+argParser.add_argument('-bgColor', dest='bgColor', default='#111144', help='Background color of window while someone is talking (most usual web colors work including #rgb and #rrggbb)' )
 argParser.add_argument('-fgColor', dest='fgColor', default='#ffff33', help='Foreground color of window while someone is talking (most usual web colors work including #rgb and #rrggbb)' )
 argParser.add_argument('-mbgColor', dest='muteBgColor', default='#11ff11', help='Background color of window while nobody is talking (most usual web colors work including #rgb and #rrggbb)' )
 argParser.add_argument('-mfgColor', dest='muteFgColor', default='black', help='Foreground color of window while nobody is talking (most usual web colors work including #rgb and #rrggbb)' )
