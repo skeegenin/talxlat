@@ -98,7 +98,7 @@ class RollingPowerWindowEvaluator:
 			return 0
 		return self.powerStdDevEstimateTimesBufferSize / self.totalPower
 		
-	def getTalkLevelEstimate( self, cvMin = 0.5, cvMax = 0.9, pMin = 0.005, pMax = 0.02 ):
+	def getTalkLevelEstimate( self, cvMin = 0.5, cvMax = 0.9, pMin = 0.0025, pMax = 0.02 ):
 		return scale( self.getPowerCoefficientOfVariation(), cvMin, cvMax ) * scale( self.getTotalPowerPercent(), pMin, pMax )
 	
 class AudioMonitor:
@@ -202,14 +202,17 @@ class TalxlatCanvas(Tk.Canvas):
 		self.fgColor = fgColor
 		self.muteBgColor = muteBgColor
 		self.muteFgColor = muteFgColor
+		self.minTalkLevel = 0.05
 		self.shapeMargin = 10
 		self.shapeThickness = 30
 		self.micShape = None
 		self.speakerShape = None
 		self.muteShapes = None
+		self.printMonitorValues = False
 
 		self.bind( '<Configure>', self.onResize )
 		self.bind( '<Button-1>', self.onLeftClick )
+		self.bind( '<Control-1>', self.onShiftLeftClick )
 
 		self.updateCanvas()
 
@@ -285,9 +288,9 @@ class TalxlatCanvas(Tk.Canvas):
 			fill = self.muteFgColor, outline = '' ) )
 			
 		mouthCenterX = int( width / 2 )
-		mouthCenterY = height * 0.7
-		mouthHalfWidth = int( width * 0.125 )
 		mouthHalfHeight = int( height * 0.02 )
+		mouthHalfWidth = mouthHalfHeight
+		mouthCenterY = height * 0.7 + 2 * mouthHalfHeight
 		mouthThickness = self.shapeThickness / 2
 		mouthPoints = [
 			mouthCenterX, mouthCenterY - mouthThickness,
@@ -336,6 +339,10 @@ class TalxlatCanvas(Tk.Canvas):
 		
 	def onLeftClick( self, event ):
 		print( self.master.winfo_geometry() )
+		
+	def onShiftLeftClick( self, event ):
+		self.printMonitorValues = not self.printMonitorValues
+		print( '=========' )
 
 	def updateCanvas( self, event = None ):
 		micTalkLevel = self.micMonitor.rollingPowerWindowEvaluator.getTalkLevelEstimate()
@@ -343,7 +350,7 @@ class TalxlatCanvas(Tk.Canvas):
 		if self.speakerMonitor is not None:
 			speakerTalkLevel = self.speakerMonitor.rollingPowerWindowEvaluator.getTalkLevelEstimate()
 		
-		muted = micTalkLevel < 0.1 and speakerTalkLevel < 0.1
+		muted = micTalkLevel < self.minTalkLevel and speakerTalkLevel < self.minTalkLevel
 		self.clearShapes()
 		
 		if muted:
@@ -354,6 +361,27 @@ class TalxlatCanvas(Tk.Canvas):
 			self.createMicShape( micTalkLevel )
 			self.createSpeakerShape( speakerTalkLevel )
 			
+		if self.printMonitorValues:
+			rollingPowerWindowEvaluator = self.micMonitor.rollingPowerWindowEvaluator
+			print( '' )
+			print( '{0}\t{1}'.format( '\t'.join( map( lambda x: str( x ), [
+				rollingPowerWindowEvaluator.getTalkLevelEstimate(),
+				rollingPowerWindowEvaluator.getTotalPowerPercent(),
+				rollingPowerWindowEvaluator.getPowerCoefficientOfVariation(),
+				rollingPowerWindowEvaluator.outlyingPowerThreshhold,
+				rollingPowerWindowEvaluator.powerStdDevEstimateTimesBufferSize / rollingPowerWindowEvaluator.powerWindowBuffer.size,
+				rollingPowerWindowEvaluator.totalPower ] ) ),
+				muted ) )
+			rollingPowerWindowEvaluator = self.speakerMonitor.rollingPowerWindowEvaluator
+			print( '{0}\t{1}'.format( '\t'.join( map( lambda x: str( x ), [
+				rollingPowerWindowEvaluator.getTalkLevelEstimate(),
+				rollingPowerWindowEvaluator.getTotalPowerPercent(),
+				rollingPowerWindowEvaluator.getPowerCoefficientOfVariation(),
+				rollingPowerWindowEvaluator.outlyingPowerThreshhold,
+				rollingPowerWindowEvaluator.powerStdDevEstimateTimesBufferSize / rollingPowerWindowEvaluator.powerWindowBuffer.size,
+				rollingPowerWindowEvaluator.totalPower ] ) ),
+				muted ) )
+
 		self.after( 300, self.updateCanvas )
 		
 shapeMargin = 10
