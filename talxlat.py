@@ -98,8 +98,16 @@ class RollingPowerWindowEvaluator:
 			return 0
 		return self.powerStdDevEstimateTimesBufferSize / self.totalPower
 		
-	def getTalkLevelEstimate( self, cvMin = 0.5, cvMax = 0.9, pMin = 0.0025, pMax = 0.02 ):
-		return scale( self.getPowerCoefficientOfVariation(), cvMin, cvMax ) * scale( self.getTotalPowerPercent(), pMin, pMax )
+	def getScaledPowerCoefficientOfVariation( self, cvMin = 0.5, cvMax = 0.9 ):
+		return scale( self.getPowerCoefficientOfVariation(), cvMin, cvMax )
+		
+	def getScaledPower( self, pMin = 0.005, pMax = 0.03 ):
+		return scale( self.getTotalPowerPercent(), pMin, pMax )
+		
+	def getTalkLevelEstimate( self, cvMin = 0.5, cvMax = 0.9, pMin = 0.005, pMax = 0.03 ):
+		scaledVariation = self.getScaledPowerCoefficientOfVariation( cvMin, cvMax )
+		scaledPower = self.getScaledPower( pMin, pMax )
+		return ( ( scaledVariation ** 0.7 ) * ( scaledPower ** 1.3 ) )
 	
 class AudioMonitor:
 	def __init__( self, audioInterface, deviceIndex = 0, bufferSeconds = 3 ):
@@ -202,7 +210,6 @@ class TalxlatCanvas(Tk.Canvas):
 		self.fgColor = fgColor
 		self.muteBgColor = muteBgColor
 		self.muteFgColor = muteFgColor
-		self.minTalkLevel = 0.05
 		self.shapeMargin = 10
 		self.shapeThickness = 30
 		self.micShape = None
@@ -216,16 +223,19 @@ class TalxlatCanvas(Tk.Canvas):
 
 		self.updateCanvas()
 
-	def createArrowPoints( self, scale, down = False ):
+	def createArrowPoints( self, power, variation, down = False ):
 		width = self.winfo_width()
 		height = self.winfo_height()
-		arrowWidth = ( width - self.shapeMargin ) * scale
-		arrowHeight = ( ( height * 0.5 ) - self.shapeMargin ) * scale
+		arrowWidth = ( width - self.shapeMargin ) * variation
+		arrowSpaceHeight = ( ( height * 0.5 ) - self.shapeMargin )
+		arrowHeight = arrowSpaceHeight * power
 		
-		baseY = height - self.shapeMargin
+		upBaseY = height - self.shapeMargin
+		downBaseY = self.shapeMargin
+		baseY = upBaseY
 		upDownYScale = 1.0
 		if down:
-			baseY = self.shapeMargin
+			baseY = downBaseY
 			upDownYScale = -1.0
 		
 		tipY = baseY - ( upDownYScale * arrowHeight )
@@ -233,31 +243,28 @@ class TalxlatCanvas(Tk.Canvas):
 		centerX = width * 0.5
 		leftX = centerX - ( arrowWidth * 0.5 )
 		rightX = centerX + ( arrowWidth * 0.5 )
-		
+			
 		return [
 			leftX, baseY,
 			centerX, tipY,
 			rightX, baseY,
 			max( centerX, rightX - self.shapeThickness ), baseY,
-			centerX, min( height - self.shapeMargin, max( self.shapeMargin, tipY + ( upDownYScale * 4 * self.shapeThickness ) ) ),
+			centerX, min( upBaseY, max( downBaseY, tipY + ( upDownYScale * 4 * self.shapeThickness ) ) ),
 			min( centerX, leftX + self.shapeThickness ), baseY
 		]
 		
-	def createMicShape( self, scale ):
+	def createMicShape( self, power, variation ):
 		if self.micShape is not None:
 			return
 		
-		micPoints = self.createArrowPoints( scale )
+		micPoints = self.createArrowPoints( power, variation )
 		self.micShape = self.create_polygon( micPoints, fill = self.fgColor )
 	
-	def createSpeakerShape( self, scale ):
+	def createSpeakerShape( self, power, variation ):
 		if self.speakerShape is not None:
 			return
 			
-		width = self.winfo_width() * scale
-		height = self.winfo_height() * scale
-		
-		speakerPoints = self.createArrowPoints( scale, True )
+		speakerPoints = self.createArrowPoints( power, variation, True )
 		self.speakerShape = self.create_polygon( speakerPoints, fill = self.fgColor )
 	
 	def createMuteShapes( self ):
@@ -309,23 +316,6 @@ class TalxlatCanvas(Tk.Canvas):
 			mouthCenterX - mouthHalfWidth - mouthThickness, mouthCenterY - mouthHalfHeight,
 			mouthCenterX - mouthHalfWidth, mouthCenterY - mouthHalfHeight - mouthThickness,
 		]
-		# mouthPoints = [
-			# mouthCenterX, mouthCenterY,
-			# mouthCenterX + mouthHalfWidth, mouthCenterY - mouthHalfHeight - mouthThickness,
-			# mouthCenterX + mouthHalfWidth + mouthThickness, mouthCenterY - mouthHalfHeight,
-
-			# mouthCenterX, mouthCenterY,
-			# mouthCenterX + mouthHalfWidth, mouthCenterY + mouthHalfHeight + mouthThickness,
-			# mouthCenterX + mouthHalfWidth + mouthThickness, mouthCenterY + mouthHalfHeight,
-
-			# mouthCenterX, mouthCenterY,
-			# mouthCenterX - mouthHalfWidth, mouthCenterY + mouthHalfHeight + mouthThickness,
-			# mouthCenterX - mouthHalfWidth - mouthThickness, mouthCenterY + mouthHalfHeight,
-
-			# mouthCenterX, mouthCenterY,
-			# mouthCenterX - mouthHalfWidth, mouthCenterY - mouthHalfHeight - mouthThickness,
-			# mouthCenterX - mouthHalfWidth - mouthThickness, mouthCenterY - mouthHalfHeight,
-		# ]
 		self.muteShapes.append( self.create_polygon( mouthPoints, fill = self.muteFgColor ) )
 
 	def clearShapes( self ):
@@ -345,12 +335,15 @@ class TalxlatCanvas(Tk.Canvas):
 		print( '=========' )
 
 	def updateCanvas( self, event = None ):
-		micTalkLevel = self.micMonitor.rollingPowerWindowEvaluator.getTalkLevelEstimate()
-		speakerTalkLevel = 0
+		micVariation = self.micMonitor.rollingPowerWindowEvaluator.getScaledPowerCoefficientOfVariation()
+		micPower = self.micMonitor.rollingPowerWindowEvaluator.getScaledPower()
+		speakerVariation = 0.0
+		speakerPower = 0.0
 		if self.speakerMonitor is not None:
-			speakerTalkLevel = self.speakerMonitor.rollingPowerWindowEvaluator.getTalkLevelEstimate()
+			speakerVariation = self.speakerMonitor.rollingPowerWindowEvaluator.getScaledPowerCoefficientOfVariation()
+			speakerPower = self.speakerMonitor.rollingPowerWindowEvaluator.getScaledPower()
 		
-		muted = micTalkLevel < self.minTalkLevel and speakerTalkLevel < self.minTalkLevel
+		muted = ( micVariation <= 0 or micPower <= 0 ) and ( speakerVariation <= 0 or speakerPower <= 0 )
 		self.clearShapes()
 		
 		if muted:
@@ -358,25 +351,27 @@ class TalxlatCanvas(Tk.Canvas):
 			self.createMuteShapes()
 		else:
 			self.configure( bg = self.bgColor )
-			self.createMicShape( micTalkLevel )
-			self.createSpeakerShape( speakerTalkLevel )
+			self.createMicShape( micPower, micVariation )
+			self.createSpeakerShape( speakerPower, speakerVariation )
 			
 		if self.printMonitorValues:
 			rollingPowerWindowEvaluator = self.micMonitor.rollingPowerWindowEvaluator
 			print( '' )
 			print( '{0}\t{1}'.format( '\t'.join( map( lambda x: str( x ), [
-				rollingPowerWindowEvaluator.getTalkLevelEstimate(),
-				rollingPowerWindowEvaluator.getTotalPowerPercent(),
+				rollingPowerWindowEvaluator.getScaledPowerCoefficientOfVariation(),
+				rollingPowerWindowEvaluator.getScaledPower(),
 				rollingPowerWindowEvaluator.getPowerCoefficientOfVariation(),
+				rollingPowerWindowEvaluator.getTotalPowerPercent(),
 				rollingPowerWindowEvaluator.outlyingPowerThreshhold,
 				rollingPowerWindowEvaluator.powerStdDevEstimateTimesBufferSize / rollingPowerWindowEvaluator.powerWindowBuffer.size,
 				rollingPowerWindowEvaluator.totalPower ] ) ),
 				muted ) )
 			rollingPowerWindowEvaluator = self.speakerMonitor.rollingPowerWindowEvaluator
 			print( '{0}\t{1}'.format( '\t'.join( map( lambda x: str( x ), [
-				rollingPowerWindowEvaluator.getTalkLevelEstimate(),
-				rollingPowerWindowEvaluator.getTotalPowerPercent(),
+				rollingPowerWindowEvaluator.getScaledPowerCoefficientOfVariation(),
+				rollingPowerWindowEvaluator.getScaledPower(),
 				rollingPowerWindowEvaluator.getPowerCoefficientOfVariation(),
+				rollingPowerWindowEvaluator.getTotalPowerPercent(),
 				rollingPowerWindowEvaluator.outlyingPowerThreshhold,
 				rollingPowerWindowEvaluator.powerStdDevEstimateTimesBufferSize / rollingPowerWindowEvaluator.powerWindowBuffer.size,
 				rollingPowerWindowEvaluator.totalPower ] ) ),
@@ -395,7 +390,7 @@ argParser.add_argument('-l', dest='listDevicesAndExit', action='store_true', def
 argParser.add_argument('-m', dest='prefMicInput', help='name of preferred input device for Microphone (partial name works)' )
 argParser.add_argument('-s', dest='prefSpeakerMonitorInput', help='name of preferred input device for monitoring Speaker Output  (partial name works)' )
 argParser.add_argument('-normalWindow', dest='normalWindow', action='store_true', default=False, help='In MS Windows, open as a normal window instead of Tool on top of everything')
-argParser.add_argument('-g', dest='windowGeometry', default='400x800-0+0', help='Window geometry in format "[width]x[height]+[x]+[y]", default: 400x800-0+0 which starts the window in the upper right corner of the main display. Pro Tip: click the window to print the current geometry!')
+argParser.add_argument('-g', dest='windowGeometry', default='400x800-270+0', help='Window geometry in format "[width]x[height]+[x]+[y]", default: 400x800-0+0 which starts the window in the upper right corner of the main display. Pro Tip: click the window to print the current geometry!')
 argParser.add_argument('-bgColor', dest='bgColor', default='#111144', help='Background color of window while someone is talking (most usual web colors work including #rgb and #rrggbb)' )
 argParser.add_argument('-fgColor', dest='fgColor', default='#ffff33', help='Foreground color of window while someone is talking (most usual web colors work including #rgb and #rrggbb)' )
 argParser.add_argument('-mbgColor', dest='muteBgColor', default='#11ff11', help='Background color of window while nobody is talking (most usual web colors work including #rgb and #rrggbb)' )
